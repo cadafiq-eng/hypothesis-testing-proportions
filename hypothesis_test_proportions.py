@@ -1,287 +1,425 @@
 """
-Tests unitarios para la librería de pruebas de hipótesis
-para comparación de proporciones.
+Herramienta para pruebas de hipótesis e intervalos de confianza
+en comparación de proporciones para muestras pequeñas.
 
-Para ejecutar los tests:
-    pytest test_hypothesis.py -v
-    
-Para ejecutar con cobertura:
-    pytest test_hypothesis.py --cov=hypothesis_test_proportions --cov-report=html
+Implementa métodos robustos específicamente diseñados para muestras pequeñas:
+- Prueba exacta de Fisher
+- Prueba de Chi-cuadrado
+- Intervalo de confianza Agresti-Coull
+- Intervalo de confianza Agresti-Caffo
+
+Autor: Tu Nombre
+Versión: 1.0.0
+Licencia: MIT
 """
 
-import pytest
 import numpy as np
-import sys
-sys.path.append('..')
+from scipy import stats
+from scipy.stats import chi2_contingency, fisher_exact
+import pandas as pd
 
-from hypothesis_test_proportions import PruebasProporcionesComparacion
+__version__ = "1.0.0"
 
 
-class TestPruebasProporcionesComparacion:
-    """Tests para la clase PruebasProporcionesComparacion"""
+class PruebasProporcionesComparacion:
+    """
+    Clase para realizar pruebas de hipótesis e intervalos de confianza 
+    para comparación de proporciones en muestras pequeñas
     
-    def test_inicializacion_basica(self):
-        """Test de inicialización básica con tabla 2x2"""
-        tabla = [[10, 5], [3, 12]]
-        prueba = PruebasProporcionesComparacion(tabla)
-        
-        assert prueba.tabla.shape == (2, 2)
-        assert prueba.alpha == 0.05
-        assert len(prueba.nombres_grupos) == 2
-        assert len(prueba.nombres_categorias) == 2
+    Métodos implementados:
+    - Prueba exacta de Fisher (tablas 2x2)
+    - Prueba de Chi-cuadrado (cualquier tabla)
+    - Intervalo de confianza Agresti-Coull (proporciones individuales)
+    - Intervalo de confianza Agresti-Caffo (diferencia de proporciones)
     
-    def test_inicializacion_con_nombres(self):
-        """Test de inicialización con nombres personalizados"""
-        tabla = [[10, 5], [3, 12]]
-        grupos = ['Control', 'Tratamiento']
-        categorias = ['Éxito', 'Fallo']
+    Referencias:
+    -----------
+    - Agresti, A., & Coull, B. A. (1998). Approximate is better than 'exact'
+      for interval estimation of binomial proportions. The American Statistician.
+    - Agresti, A., & Caffo, B. (2000). Simple and effective confidence intervals
+      for proportions and differences of proportions result from adding two
+      successes and two failures. The American Statistician.
+    """
+    
+    def __init__(self, tabla_contingencia, nombres_grupos=None, nombres_categorias=None, alpha=0.05):
+        """
+        Inicializa con una tabla de contingencia
         
-        prueba = PruebasProporcionesComparacion(
-            tabla,
-            nombres_grupos=grupos,
-            nombres_categorias=categorias,
-            alpha=0.01
+        Parámetros:
+        -----------
+        tabla_contingencia : array-like
+            Tabla de contingencia (puede ser 2x2 o mayor)
+        nombres_grupos : list, opcional
+            Nombres de los grupos (filas)
+        nombres_categorias : list, opcional
+            Nombres de las categorías (columnas)
+        alpha : float
+            Nivel de significancia (por defecto 0.05)
+            
+        Ejemplos:
+        ---------
+        >>> tabla = [[10, 5], [3, 12]]
+        >>> prueba = PruebasProporcionesComparacion(tabla)
+        >>> resultado = prueba.prueba_fisher_exacta()
+        """
+        self.tabla = np.array(tabla_contingencia)
+        self.alpha = alpha
+        self.nombres_grupos = nombres_grupos or [f"Grupo {i+1}" for i in range(self.tabla.shape[0])]
+        self.nombres_categorias = nombres_categorias or [f"Categoría {i+1}" for i in range(self.tabla.shape[1])]
+        
+    def mostrar_tabla(self):
+        """Muestra la tabla de contingencia de forma elegante"""
+        df = pd.DataFrame(
+            self.tabla, 
+            index=self.nombres_grupos,
+            columns=self.nombres_categorias
         )
+        df['Total'] = df.sum(axis=1)
+        df.loc['Total'] = df.sum()
         
-        assert prueba.nombres_grupos == grupos
-        assert prueba.nombres_categorias == categorias
-        assert prueba.alpha == 0.01
+        print("\n" + "="*60)
+        print("TABLA DE CONTINGENCIA")
+        print("="*60)
+        print(df)
+        print("="*60 + "\n")
+        
+    def prueba_fisher_exacta(self, alternativa='two-sided'):
+        """
+        Realiza la prueba exacta de Fisher (solo para tablas 2x2)
+        
+        Parámetros:
+        -----------
+        alternativa : str
+            'two-sided', 'less', 'greater'
+            
+        Retorna:
+        --------
+        dict : Diccionario con resultados de la prueba
+        
+        Ejemplos:
+        ---------
+        >>> resultado = prueba.prueba_fisher_exacta(alternativa='two-sided')
+        >>> print(resultado['p_value'])
+        """
+        if self.tabla.shape != (2, 2):
+            return {
+                'aplicable': False,
+                'mensaje': 'La prueba exacta de Fisher solo es aplicable a tablas 2x2'
+            }
+        
+        odds_ratio, p_value = fisher_exact(self.tabla, alternative=alternativa)
+        
+        # Calcular proporciones
+        p1 = self.tabla[0, 0] / self.tabla[0].sum()
+        p2 = self.tabla[1, 0] / self.tabla[1].sum()
+        
+        print("\n" + "="*60)
+        print("PRUEBA EXACTA DE FISHER")
+        print("="*60)
+        print(f"Hipótesis nula (H₀): Las proporciones son iguales")
+        print(f"Hipótesis alternativa (H₁): {alternativa}")
+        print(f"\nProporción {self.nombres_grupos[0]}: {p1:.4f} ({self.tabla[0,0]}/{self.tabla[0].sum()})")
+        print(f"Proporción {self.nombres_grupos[1]}: {p2:.4f} ({self.tabla[1,0]}/{self.tabla[1].sum()})")
+        print(f"\nOdds Ratio: {odds_ratio:.4f}")
+        print(f"Valor p: {p_value:.4f}")
+        print(f"Nivel de significancia: {self.alpha}")
+        
+        if p_value < self.alpha:
+            print(f"\n✓ CONCLUSIÓN: Se RECHAZA H₀ (p={p_value:.4f} < {self.alpha})")
+            print("  Existe evidencia significativa de diferencia entre proporciones")
+        else:
+            print(f"\n✗ CONCLUSIÓN: NO se rechaza H₀ (p={p_value:.4f} >= {self.alpha})")
+            print("  No hay evidencia suficiente de diferencia entre proporciones")
+        
+        print("="*60 + "\n")
+        
+        return {
+            'aplicable': True,
+            'odds_ratio': odds_ratio,
+            'p_value': p_value,
+            'p1': p1,
+            'p2': p2,
+            'rechazo_h0': p_value < self.alpha
+        }
     
-    def test_fisher_tabla_2x2(self):
-        """Test de prueba exacta de Fisher con tabla 2x2"""
-        tabla = [[10, 5], [3, 12]]
-        prueba = PruebasProporcionesComparacion(tabla)
+    def prueba_chi_cuadrado(self):
+        """
+        Realiza la prueba de Chi-cuadrado de independencia
         
-        resultado = prueba.prueba_fisher_exacta()
+        Retorna:
+        --------
+        dict : Diccionario con resultados de la prueba
         
-        assert resultado['aplicable'] == True
-        assert 'odds_ratio' in resultado
-        assert 'p_value' in resultado
-        assert 0 <= resultado['p_value'] <= 1
-        assert isinstance(resultado['rechazo_h0'], bool)
+        Notas:
+        ------
+        Se recomienda que al menos el 80% de las celdas tengan frecuencia esperada >= 5
+        """
+        chi2, p_value, df, expected = chi2_contingency(self.tabla)
+        
+        # Verificar condición de frecuencias esperadas >= 5
+        celdas_bajas = np.sum(expected < 5)
+        total_celdas = expected.size
+        porcentaje_bajas = (celdas_bajas / total_celdas) * 100
+        
+        print("\n" + "="*60)
+        print("PRUEBA DE CHI-CUADRADO")
+        print("="*60)
+        print(f"Hipótesis nula (H₀): Las variables son independientes")
+        print(f"Hipótesis alternativa (H₁): Las variables están asociadas")
+        print(f"\nEstadístico χ²: {chi2:.4f}")
+        print(f"Grados de libertad: {df} = ({self.tabla.shape[0]}-1) × ({self.tabla.shape[1]}-1)")
+        print(f"Valor p: {p_value:.4f}")
+        print(f"Nivel de significancia: {self.alpha}")
+        
+        print(f"\n--- Frecuencias Esperadas ---")
+        df_expected = pd.DataFrame(
+            expected, 
+            index=self.nombres_grupos,
+            columns=self.nombres_categorias
+        )
+        print(df_expected.round(2))
+        
+        print(f"\n--- Validación de Supuestos ---")
+        print(f"Celdas con frecuencia esperada < 5: {celdas_bajas}/{total_celdas} ({porcentaje_bajas:.1f}%)")
+        
+        if porcentaje_bajas > 20:
+            print("⚠ ADVERTENCIA: Más del 20% de celdas tienen frecuencia esperada < 5")
+            print("  La prueba de Chi-cuadrado puede no ser apropiada.")
+            print("  Considere usar la prueba exacta de Fisher (si es 2x2)")
+        else:
+            print("✓ Condición de frecuencias esperadas satisfecha")
+        
+        if p_value < self.alpha:
+            print(f"\n✓ CONCLUSIÓN: Se RECHAZA H₀ (p={p_value:.4f} < {self.alpha})")
+            print("  Existe evidencia significativa de asociación entre variables")
+        else:
+            print(f"\n✗ CONCLUSIÓN: NO se rechaza H₀ (p={p_value:.4f} >= {self.alpha})")
+            print("  No hay evidencia suficiente de asociación entre variables")
+        
+        print("="*60 + "\n")
+        
+        return {
+            'chi2': chi2,
+            'p_value': p_value,
+            'df': df,
+            'expected': expected,
+            'celdas_bajas': celdas_bajas,
+            'rechazo_h0': p_value < self.alpha,
+            'supuestos_ok': porcentaje_bajas <= 20
+        }
     
-    def test_fisher_tabla_no_2x2(self):
-        """Test de Fisher con tabla no 2x2 (debería indicar no aplicable)"""
-        tabla = [[10, 5, 3], [3, 12, 8]]
-        prueba = PruebasProporcionesComparacion(tabla)
+    def intervalo_agresti_coull(self, grupo=0, categoria_exito=0):
+        """
+        Calcula el intervalo de confianza Agresti-Coull para una proporción
+        (método ajustado recomendado para muestras pequeñas)
         
-        resultado = prueba.prueba_fisher_exacta()
+        Parámetros:
+        -----------
+        grupo : int
+            Índice del grupo (fila)
+        categoria_exito : int
+            Índice de la categoría considerada como "éxito" (columna)
+            
+        Retorna:
+        --------
+        dict : Diccionario con resultados del intervalo
         
-        assert resultado['aplicable'] == False
-        assert 'mensaje' in resultado
+        Referencias:
+        ------------
+        Agresti, A., & Coull, B. A. (1998). The American Statistician.
+        """
+        x = self.tabla[grupo, categoria_exito]  # Número de éxitos
+        n = self.tabla[grupo].sum()  # Tamaño de muestra
+        
+        # Valor crítico para el nivel de confianza
+        z = stats.norm.ppf(1 - self.alpha/2)
+        
+        # Método Agresti-Coull (agregar z²/2 éxitos y z² observaciones)
+        n_tilde = n + z**2
+        p_tilde = (x + z**2/2) / n_tilde
+        
+        # Error estándar ajustado
+        se = np.sqrt(p_tilde * (1 - p_tilde) / n_tilde)
+        
+        # Intervalo de confianza
+        ic_lower = p_tilde - z * se
+        ic_upper = p_tilde + z * se
+        
+        # Asegurar que esté en [0, 1]
+        ic_lower = max(0, ic_lower)
+        ic_upper = min(1, ic_upper)
+        
+        # Proporción observada (sin ajuste)
+        p_obs = x / n
+        
+        print("\n" + "="*60)
+        print("INTERVALO DE CONFIANZA AGRESTI-COULL")
+        print("="*60)
+        print(f"Grupo: {self.nombres_grupos[grupo]}")
+        print(f"Categoría: {self.nombres_categorias[categoria_exito]}")
+        print(f"Nivel de confianza: {(1-self.alpha)*100:.0f}%")
+        print(f"\nDatos observados:")
+        print(f"  Éxitos: {x}/{n}")
+        print(f"  Proporción observada: {p_obs:.4f}")
+        print(f"\nAjuste Agresti-Coull:")
+        print(f"  n ajustado (ñ): {n_tilde:.2f}")
+        print(f"  p ajustado (p̃): {p_tilde:.4f}")
+        print(f"\nIntervalo de Confianza {(1-self.alpha)*100:.0f}%:")
+        print(f"  [{ic_lower:.4f}, {ic_upper:.4f}]")
+        print(f"  ≈ [{ic_lower*100:.2f}%, {ic_upper*100:.2f}%]")
+        print("="*60 + "\n")
+        
+        return {
+            'p_observada': p_obs,
+            'p_ajustada': p_tilde,
+            'ic_lower': ic_lower,
+            'ic_upper': ic_upper,
+            'n': n,
+            'x': x
+        }
     
-    def test_chi_cuadrado_basico(self):
-        """Test básico de prueba de Chi-cuadrado"""
-        tabla = [[10, 5], [3, 12]]
-        prueba = PruebasProporcionesComparacion(tabla)
+    def intervalo_agresti_caffo_diferencia(self):
+        """
+        Calcula el intervalo de confianza Agresti-Caffo para la diferencia de proporciones
+        (solo para tablas 2x2, método recomendado para muestras pequeñas)
         
-        resultado = prueba.prueba_chi_cuadrado()
+        Retorna:
+        --------
+        dict : Diccionario con resultados del intervalo
         
-        assert 'chi2' in resultado
-        assert 'p_value' in resultado
-        assert 'df' in resultado
-        assert resultado['df'] == 1  # (2-1) * (2-1) = 1
-        assert isinstance(resultado['supuestos_ok'], bool)
+        Referencias:
+        ------------
+        Agresti, A., & Caffo, B. (2000). The American Statistician.
+        """
+        if self.tabla.shape != (2, 2):
+            print("El método Agresti-Caffo solo es aplicable a tablas 2x2")
+            return None
+        
+        x1 = self.tabla[0, 0]  # Éxitos grupo 1
+        n1 = self.tabla[0].sum()  # Total grupo 1
+        x2 = self.tabla[1, 0]  # Éxitos grupo 2
+        n2 = self.tabla[1].sum()  # Total grupo 2
+        
+        # Valor crítico
+        z = stats.norm.ppf(1 - self.alpha/2)
+        
+        # Método Agresti-Caffo: agregar 1 éxito y 1 fallo a cada grupo
+        x1_tilde = x1 + 1
+        n1_tilde = n1 + 2
+        x2_tilde = x2 + 1
+        n2_tilde = n2 + 2
+        
+        # Proporciones ajustadas
+        p1_tilde = x1_tilde / n1_tilde
+        p2_tilde = x2_tilde / n2_tilde
+        
+        # Diferencia de proporciones ajustada
+        diff = p1_tilde - p2_tilde
+        
+        # Error estándar
+        se = np.sqrt((p1_tilde * (1 - p1_tilde) / n1_tilde) + 
+                     (p2_tilde * (1 - p2_tilde) / n2_tilde))
+        
+        # Intervalo de confianza
+        ic_lower = diff - z * se
+        ic_upper = diff + z * se
+        
+        # Proporciones observadas
+        p1_obs = x1 / n1
+        p2_obs = x2 / n2
+        diff_obs = p1_obs - p2_obs
+        
+        print("\n" + "="*60)
+        print("INTERVALO DE CONFIANZA AGRESTI-CAFFO")
+        print("PARA DIFERENCIA DE PROPORCIONES")
+        print("="*60)
+        print(f"Nivel de confianza: {(1-self.alpha)*100:.0f}%")
+        print(f"\nDatos observados:")
+        print(f"  {self.nombres_grupos[0]}: {x1}/{n1} = {p1_obs:.4f}")
+        print(f"  {self.nombres_grupos[1]}: {x2}/{n2} = {p2_obs:.4f}")
+        print(f"  Diferencia observada: {diff_obs:.4f}")
+        print(f"\nAjuste Agresti-Caffo (+1 éxito, +1 fallo a cada grupo):")
+        print(f"  p̃₁: {p1_tilde:.4f}")
+        print(f"  p̃₂: {p2_tilde:.4f}")
+        print(f"  Diferencia ajustada: {diff:.4f}")
+        print(f"\nIntervalo de Confianza {(1-self.alpha)*100:.0f}%:")
+        print(f"  [{ic_lower:.4f}, {ic_upper:.4f}]")
+        print(f"  ≈ [{ic_lower*100:.2f}%, {ic_upper*100:.2f}%]")
+        
+        if ic_lower > 0:
+            print(f"\n✓ El intervalo NO incluye 0: p₁ > p₂ con {(1-self.alpha)*100:.0f}% de confianza")
+        elif ic_upper < 0:
+            print(f"\n✓ El intervalo NO incluye 0: p₁ < p₂ con {(1-self.alpha)*100:.0f}% de confianza")
+        else:
+            print(f"\n✗ El intervalo INCLUYE 0: no hay evidencia suficiente de diferencia")
+        
+        print("="*60 + "\n")
+        
+        return {
+            'p1_obs': p1_obs,
+            'p2_obs': p2_obs,
+            'diff_obs': diff_obs,
+            'p1_ajustada': p1_tilde,
+            'p2_ajustada': p2_tilde,
+            'diff_ajustada': diff,
+            'ic_lower': ic_lower,
+            'ic_upper': ic_upper,
+            'incluye_cero': ic_lower <= 0 <= ic_upper
+        }
     
-    def test_chi_cuadrado_tabla_grande(self):
-        """Test de Chi-cuadrado con tabla más grande"""
-        tabla = [
-            [25, 18, 12],
-            [30, 15, 8],
-            [15, 20, 17]
-        ]
-        prueba = PruebasProporcionesComparacion(tabla)
+    def comparar_metodos(self):
+        """
+        Compara los resultados de Fisher y Chi-cuadrado (solo para tablas 2x2)
+        y proporciona recomendaciones sobre qué método usar
+        """
+        if self.tabla.shape != (2, 2):
+            print("La comparación detallada solo está disponible para tablas 2x2")
+            return
         
-        resultado = prueba.prueba_chi_cuadrado()
+        print("\n" + "="*60)
+        print("COMPARACIÓN DE MÉTODOS")
+        print("="*60)
         
-        assert resultado['df'] == 4  # (3-1) * (3-1) = 4
-        assert 0 <= resultado['p_value'] <= 1
-    
-    def test_agresti_coull_basico(self):
-        """Test de intervalo Agresti-Coull"""
-        tabla = [[10, 5], [3, 12]]
-        prueba = PruebasProporcionesComparacion(tabla)
+        # Fisher
+        fisher_result = fisher_exact(self.tabla, alternative='two-sided')
+        p_fisher = fisher_result[1]
         
-        resultado = prueba.intervalo_agresti_coull(grupo=0, categoria_exito=0)
+        # Chi-cuadrado
+        chi2, p_chi2, df, expected = chi2_contingency(self.tabla)
         
-        assert 'p_observada' in resultado
-        assert 'p_ajustada' in resultado
-        assert 'ic_lower' in resultado
-        assert 'ic_upper' in resultado
-        assert 0 <= resultado['ic_lower'] <= 1
-        assert 0 <= resultado['ic_upper'] <= 1
-        assert resultado['ic_lower'] <= resultado['ic_upper']
-    
-    def test_agresti_coull_limites(self):
-        """Test de que los límites del IC estén en [0, 1]"""
-        tabla = [[15, 0], [0, 15]]  # Casos extremos
-        prueba = PruebasProporcionesComparacion(tabla)
+        print(f"\n{'Método':<30} {'Valor p':<15} {'Decisión':<20}")
+        print("-" * 65)
+        print(f"{'Fisher Exacta':<30} {p_fisher:<15.4f} {'Rechazar H₀' if p_fisher < self.alpha else 'No rechazar H₀'}")
+        print(f"{'Chi-cuadrado':<30} {p_chi2:<15.4f} {'Rechazar H₀' if p_chi2 < self.alpha else 'No rechazar H₀'}")
         
-        resultado = prueba.intervalo_agresti_coull(grupo=0, categoria_exito=0)
+        print(f"\n--- Recomendación ---")
+        total = self.tabla.sum()
+        min_expected = expected.min()
         
-        assert 0 <= resultado['ic_lower'] <= 1
-        assert 0 <= resultado['ic_upper'] <= 1
-    
-    def test_agresti_caffo_2x2(self):
-        """Test de intervalo Agresti-Caffo para diferencia"""
-        tabla = [[10, 5], [3, 12]]
-        prueba = PruebasProporcionesComparacion(tabla)
+        if total < 20 or min_expected < 5:
+            print("✓ USAR: Prueba exacta de Fisher")
+            print(f"  Razón: Muestra pequeña (n={total}) o frecuencias esperadas < 5")
+        else:
+            print("✓ USAR: Chi-cuadrado o Fisher (ambos son válidos)")
+            print(f"  Razón: Muestra suficientemente grande (n={total})")
         
-        resultado = prueba.intervalo_agresti_caffo_diferencia()
+        print("\n--- Intervalo de Confianza ---")
+        print("✓ USAR: Método Agresti-Caffo (recomendado para muestras pequeñas)")
+        print("  Este método proporciona mejor cobertura que métodos clásicos")
         
-        assert resultado is not None
-        assert 'p1_obs' in resultado
-        assert 'p2_obs' in resultado
-        assert 'diff_obs' in resultado
-        assert 'ic_lower' in resultado
-        assert 'ic_upper' in resultado
-        assert isinstance(resultado['incluye_cero'], bool)
-    
-    def test_agresti_caffo_no_2x2(self):
-        """Test de Agresti-Caffo con tabla no 2x2 (debería retornar None)"""
-        tabla = [[10, 5, 3], [3, 12, 8]]
-        prueba = PruebasProporcionesComparacion(tabla)
+        print("="*60 + "\n")
         
-        resultado = prueba.intervalo_agresti_caffo_diferencia()
+    def analisis_completo(self):
+        """
+        Realiza un análisis completo con todos los métodos aplicables
+        """
+        self.mostrar_tabla()
         
-        assert resultado is None
-    
-    def test_proporciones_calculadas(self):
-        """Test de que las proporciones se calculen correctamente"""
-        tabla = [[12, 8], [6, 14]]  # 60% vs 30%
-        prueba = PruebasProporcionesComparacion(tabla)
+        if self.tabla.shape == (2, 2):
+            self.prueba_fisher_exacta()
+            self.intervalo_agresti_caffo_diferencia()
         
-        resultado = prueba.prueba_fisher_exacta()
+        self.prueba_chi_cuadrado()
         
-        assert abs(resultado['p1'] - 0.6) < 0.001
-        assert abs(resultado['p2'] - 0.3) < 0.001
-    
-    def test_nivel_significancia_personalizado(self):
-        """Test con nivel de significancia personalizado"""
-        tabla = [[10, 5], [3, 12]]
-        prueba = PruebasProporcionesComparacion(tabla, alpha=0.01)
-        
-        assert prueba.alpha == 0.01
-        
-        resultado = prueba.prueba_fisher_exacta()
-        # La decisión de rechazo debería usar alpha=0.01
-        assert resultado['rechazo_h0'] == (resultado['p_value'] < 0.01)
-    
-    def test_tabla_numpy_array(self):
-        """Test de que funcione con numpy array como input"""
-        tabla = np.array([[10, 5], [3, 12]])
-        prueba = PruebasProporcionesComparacion(tabla)
-        
-        assert isinstance(prueba.tabla, np.ndarray)
-        assert prueba.tabla.shape == (2, 2)
-    
-    def test_chi_cuadrado_validacion_supuestos(self):
-        """Test de validación de supuestos en Chi-cuadrado"""
-        # Tabla con frecuencias muy pequeñas
-        tabla = [[2, 1], [1, 2]]
-        prueba = PruebasProporcionesComparacion(tabla)
-        
-        resultado = prueba.prueba_chi_cuadrado()
-        
-        # Con estas frecuencias, es probable que no se cumplan los supuestos
-        assert 'supuestos_ok' in resultado
-        assert 'celdas_bajas' in resultado
-
-
-class TestCasosEspeciales:
-    """Tests para casos especiales y edge cases"""
-    
-    def test_tabla_con_ceros(self):
-        """Test con tabla que contiene ceros"""
-        tabla = [[10, 0], [0, 10]]
-        prueba = PruebasProporcionesComparacion(tabla)
-        
-        # Fisher debería manejar esto correctamente
-        resultado = prueba.prueba_fisher_exacta()
-        assert resultado['aplicable'] == True
-        
-    def test_tabla_identica(self):
-        """Test con tabla donde todos los valores son iguales"""
-        tabla = [[5, 5], [5, 5]]
-        prueba = PruebasProporcionesComparacion(tabla)
-        
-        resultado = prueba.prueba_fisher_exacta()
-        # p-value debería ser alto (no hay diferencia)
-        assert resultado['p_value'] > 0.5
-    
-    def test_muestra_muy_pequeña(self):
-        """Test con muestra muy pequeña (n < 10)"""
-        tabla = [[2, 3], [1, 4]]
-        prueba = PruebasProporcionesComparacion(tabla)
-        
-        # Debería ejecutarse sin errores
-        resultado_fisher = prueba.prueba_fisher_exacta()
-        resultado_chi2 = prueba.prueba_chi_cuadrado()
-        
-        assert resultado_fisher['aplicable'] == True
-        assert resultado_chi2['chi2'] >= 0
-
-
-class TestIntegracion:
-    """Tests de integración que prueban múltiples métodos juntos"""
-    
-    def test_analisis_completo_2x2(self):
-        """Test de análisis completo con tabla 2x2"""
-        tabla = [[10, 5], [3, 12]]
-        prueba = PruebasProporcionesComparacion(tabla)
-        
-        # Debería ejecutarse sin errores
-        prueba.analisis_completo()
-    
-    def test_comparacion_consistencia(self):
-        """Test de que Fisher y Chi-cuadrado den resultados consistentes"""
-        # Con muestra grande, ambos deberían dar resultados similares
-        tabla = [[50, 30], [20, 60]]
-        prueba = PruebasProporcionesComparacion(tabla)
-        
-        fisher_result = prueba.prueba_fisher_exacta()
-        chi2_result = prueba.prueba_chi_cuadrado()
-        
-        # Los p-values deberían ser similares (no idénticos)
-        # pero al menos la decisión debería ser la misma
-        assert fisher_result['rechazo_h0'] == chi2_result['rechazo_h0']
-
-
-# Fixtures para pytest
-@pytest.fixture
-def tabla_2x2_basica():
-    """Fixture con tabla 2x2 básica"""
-    return [[10, 5], [3, 12]]
-
-
-@pytest.fixture
-def tabla_3x3_basica():
-    """Fixture con tabla 3x3 básica"""
-    return [
-        [25, 18, 12],
-        [30, 15, 8],
-        [15, 20, 17]
-    ]
-
-
-@pytest.fixture
-def prueba_basica(tabla_2x2_basica):
-    """Fixture con objeto de prueba básico"""
-    return PruebasProporcionesComparacion(tabla_2x2_basica)
-
-
-# Tests parametrizados
-@pytest.mark.parametrize("alpha,esperado", [
-    (0.05, 0.05),
-    (0.01, 0.01),
-    (0.10, 0.10),
-])
-def test_diferentes_alphas(alpha, esperado):
-    """Test con diferentes niveles de significancia"""
-    tabla = [[10, 5], [3, 12]]
-    prueba = PruebasProporcionesComparacion(tabla, alpha=alpha)
-    assert prueba.alpha == esperado
-
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v", "--tb=short"])
+        if self.tabla.shape == (2, 2):
+            self.comparar_metodos()
