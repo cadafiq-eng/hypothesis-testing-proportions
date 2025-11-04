@@ -1,1 +1,13 @@
+# Requisitos para la aplicación Streamlit
+# Instalación: pip install -r requirements_streamlit.txt
 
+# Requisitos base
+numpy>=1.21.0
+scipy>=1.7.0
+pandas>=1.3.0
+
+# Framework web
+streamlit>=1.28.0
+
+# Opcional: para mejorar visualización
+plotly>=5.0.0
